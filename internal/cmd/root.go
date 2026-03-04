@@ -143,6 +143,16 @@ func checkForUpdatesAsync() {
 	}()
 }
 
+// checkForUpdatesAsync runs the update check in a goroutine to not block CLI startup
+func checkForUpdatesAsync() {
+	// Run update check in background goroutine
+	go func() {
+		// Use the Version variable from version.go
+		checker := updater.NewChecker(Version)
+		checker.CheckForUpdates()
+	}()
+}
+
 func init() {
 	// Root command initialization
 	rootCmd.PersistentFlags().Int64Var(

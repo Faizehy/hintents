@@ -119,9 +119,15 @@ func GenerateWithSigner(txHash string, envelopeXdr, resultMetaXdr string, events
 	}
 
 	pubKey, err := s.PublicKey()
+  if len(privKeyBytes) != ed25519.PrivateKeySize && len(privKeyBytes) != ed25519.SeedSize {
+		return nil, errors.WrapValidationError(fmt.Sprintf("invalid private key length: %d", len(privKeyBytes)))
 	if err != nil {
 		return nil, errors.WrapValidationError(fmt.Sprintf("failed to retrieve public key: %v", err))
 	}
+
+	// 5. Sign the Trace Hash
+	// We sign the hash of the payload to ensure integrity.
+	signature := ed25519.Sign(privateKey, hash[:])
 
 	auditLog := &AuditLog{
 		Version:         "1.1.0",
