@@ -74,6 +74,7 @@ fn send_error(msg: String) {
         source_location: None,
         stack_trace: Some(trace),
         wasm_offset: None,
+        linear_memory_dump: None,
     };
     if let Ok(json) = serde_json::to_string(&res) {
         println!("{}", json);
@@ -341,6 +342,7 @@ fn main() {
             source_location: None,
             stack_trace: None,
             wasm_offset: None,
+            linear_memory_dump: None,
         };
         if let Ok(json) = serde_json::to_string(&res) {
             println!("{}", json);
@@ -372,6 +374,7 @@ fn main() {
                 source_location: None,
                 stack_trace: None,
                 wasm_offset: None,
+                linear_memory_dump: None,
             };
             println!(
                 "{}",
@@ -715,6 +718,7 @@ fn main() {
                         source_location: None,
                         stack_trace: None,
                         wasm_offset: None,
+                        linear_memory_dump: None,
                     };
 
                     if let Ok(json) = serde_json::to_string(&response) {
@@ -749,6 +753,7 @@ fn main() {
                     .and_then(|m| m.map_wasm_offset_to_source(0))
                     .and_then(|loc| serde_json::to_string(&loc).ok()),
                 wasm_offset: None,
+                linear_memory_dump: None,
             };
 
             if let Ok(json) = serde_json::to_string(&response) {
@@ -805,6 +810,7 @@ fn main() {
                 source_location,
                 stack_trace: Some(wasm_trace),
                 wasm_offset,
+                linear_memory_dump: None,
             };
             if let Ok(json) = serde_json::to_string(&response) {
                 println!("{}", json);
@@ -849,6 +855,7 @@ fn main() {
                 source_location: None,
                 stack_trace: Some(wasm_trace),
                 wasm_offset: None,
+                linear_memory_dump: None,
             };
             if let Ok(json) = serde_json::to_string(&response) {
                 println!("{}", json);
@@ -895,7 +902,6 @@ fn extract_wasm_offset(error_msg: &str) -> Option<u64> {
                 return Some(offset);
             }
         }
-        
     }
     None
 }
@@ -1021,7 +1027,7 @@ pub fn decode_error(raw: &str) -> String {
         return "Resource limit exceeded — the transaction consumed more CPU instructions or memory than the protocol-21 budget allows.".to_string();
     }
 
-  if lower.contains("missing") || lower.contains("not found") {
+    if lower.contains("missing") || lower.contains("not found") {
         let key_hint = extract_missing_key_id(raw);
         if let Some(key) = key_hint {
             return format!(
@@ -1195,8 +1201,16 @@ mod tests {
     fn test_missing_ledger_entry_includes_key_id() {
         let raw = "HostError: storage get failed LedgerKey(ContractData(hash=abc123, key=Symbol(\"balance\")))";
         let msg = decode_error(raw);
-        assert!(msg.contains("Key ID:"), "expected Key ID in message, got: {}", msg);
-        assert!(msg.contains("LedgerKey(ContractData"), "expected key content in message, got: {}", msg);
+        assert!(
+            msg.contains("Key ID:"),
+            "expected Key ID in message, got: {}",
+            msg
+        );
+        assert!(
+            msg.contains("LedgerKey(ContractData"),
+            "expected key content in message, got: {}",
+            msg
+        );
         assert!(msg.contains("Missing ledger entry"));
     }
 
@@ -1217,18 +1231,27 @@ mod tests {
     #[test]
     fn test_extract_missing_key_id_ledger_key() {
         let raw = "HostError LedgerKey(ContractData(abc))";
-        assert_eq!(extract_missing_key_id(raw), Some("LedgerKey(ContractData(abc))".to_string()));
+        assert_eq!(
+            extract_missing_key_id(raw),
+            Some("LedgerKey(ContractData(abc))".to_string())
+        );
     }
 
     #[test]
     fn test_extract_missing_key_id_explicit_key_label() {
         let raw = "error: not found, key = \"GABC123/balance\"";
-        assert_eq!(extract_missing_key_id(raw), Some("GABC123/balance".to_string()));
+        assert_eq!(
+            extract_missing_key_id(raw),
+            Some("GABC123/balance".to_string())
+        );
     }
 
     #[test]
     fn test_extract_missing_key_id_none_when_absent() {
         assert_eq!(extract_missing_key_id("generic error with no key"), None);
+    }
+
+    #[test]
     fn test_generate_lcov_report_contains_function_hits() {
         let mut coverage = CoverageTracker::default();
         coverage
@@ -1246,4 +1269,3 @@ mod tests {
         assert!(report.contains("FNH:2"));
     }
 }
->>>>>>> ac2f0a127a0ae2292443728a70f9e09fa77f8835

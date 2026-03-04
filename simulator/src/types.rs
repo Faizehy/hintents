@@ -4,6 +4,7 @@
 #![allow(dead_code)]
 
 use crate::gas_optimizer::OptimizationReport;
+use crate::source_mapper::SourceLocation;
 use crate::stack_trace::WasmStackTrace;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -20,6 +21,7 @@ pub struct SimulationRequest {
     /// RFC 3339 timestamp supplied by the caller.  Preserved for future use
     /// (e.g. time-locked contract logic); not yet consumed by the simulator.
     #[allow(dead_code)]
+    #[serde(default)]
     pub timestamp: String,
     pub mock_base_fee: Option<u32>,
     pub mock_gas_price: Option<u64>,
@@ -34,6 +36,8 @@ pub struct SimulationRequest {
     pub memory_limit: Option<u64>,
     #[serde(default)]
     pub restore_preamble: Option<serde_json::Value>,
+    #[serde(default)]
+    pub include_linear_memory: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -63,10 +67,12 @@ pub struct SimulationResponse {
     pub optimization_report: Option<OptimizationReport>,
     pub budget_usage: Option<BudgetUsage>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_location: Option<String>,
+    pub source_location: Option<SourceLocation>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stack_trace: Option<WasmStackTrace>,
     pub wasm_offset: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub linear_memory_dump: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

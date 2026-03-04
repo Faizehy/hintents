@@ -509,12 +509,9 @@ func TestLoad_RequestTimeoutInvalidEnvIgnored(t *testing.T) {
 
 	os.Setenv("ERST_REQUEST_TIMEOUT", "notanumber")
 
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.RequestTimeout != 15 {
-		t.Errorf("expected default RequestTimeout=15 for invalid env value, got %d", cfg.RequestTimeout)
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid ERST_REQUEST_TIMEOUT value")
 	}
 }
 
@@ -555,8 +552,60 @@ request_timeout = -5`
 	if err := cfg.parseTOML(content); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.RequestTimeout != 0 {
-		t.Errorf("expected RequestTimeout unchanged for negative value, got %d", cfg.RequestTimeout)
+	if cfg.RequestTimeout != -5 {
+		t.Errorf("expected RequestTimeout to parse raw value, got %d", cfg.RequestTimeout)
+	}
+}
+
+func TestValidators_MissingFields(t *testing.T) {
+	tests := []struct {
+		name      string
+		validator Validator
+		cfg       *Config
+		wantErr   bool
+	}{
+		{name: "missing rpc_url", validator: RequiredFieldsValidator{}, cfg: &Config{}, wantErr: true},
+		{name: "present rpc_url", validator: RequiredFieldsValidator{}, cfg: &Config{RpcUrl: "https://ok"}, wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.validator.Validate(tt.cfg)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("expected error=%v, got %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestParseTOML_InvalidTypes(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{name: "request_timeout invalid type", content: `request_timeout = "abc"`},
+		{name: "crash_reporting invalid type", content: `crash_reporting = "maybe"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{}
+			if err := cfg.parseTOML(tt.content); err == nil {
+				t.Fatal("expected parse error")
+			}
+		})
+	}
+}
+
+func TestRequestTimeout_OutOfBounds(t *testing.T) {
+	tests := []int{-1, 301}
+	for _, timeout := range tests {
+		t.Run("timeout", func(t *testing.T) {
+			cfg := NewConfig("https://test.com", NetworkTestnet).WithRequestTimeout(timeout)
+			if err := (RequestTimeoutValidator{}).Validate(cfg); err == nil {
+				t.Fatalf("expected out-of-bounds error for %d", timeout)
+			}
+		})
 	}
 }
 

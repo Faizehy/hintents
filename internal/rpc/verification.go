@@ -25,6 +25,9 @@ import (
 // 4. Compare with the hash of the returned entry's key
 //
 // Returns an error if verification fails or if XDR decoding fails.
+// VerifyLedgerEntryHash cryptographically verifies that a returned ledger entry
+// matches the expected hash derived from its key. This ensures data integrity
+// before feeding entries to the simulator.
 func VerifyLedgerEntryHash(requestedKeyB64, returnedKeyB64 string) error {
 	if requestedKeyB64 != returnedKeyB64 {
 		return errors.WrapValidationError(

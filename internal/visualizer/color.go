@@ -6,8 +6,11 @@ package visualizer
 import (
 	"os"
 
+	"github.com/dotandev/hintents/internal/terminal"
 	"github.com/mattn/go-isatty"
 )
+
+var defaultRenderer terminal.Renderer = terminal.NewANSIRenderer()
 
 // ColorEnabled reports whether ANSI color output should be used.
 // Checks NO_COLOR and TERM=dumb environment variables on every call
@@ -80,34 +83,22 @@ func ContractBoundary(fromContract, toContract string) string {
 
 // Success returns a success indicator.
 func Success() string {
-	if !ColorEnabled() {
-		return "[OK]"
-	}
-	return themeColors("success") + "[OK]" + sgrReset
+	return defaultRenderer.Success()
 }
 
 // Warning returns a warning indicator.
 func Warning() string {
-	if !ColorEnabled() {
-		return "[!]"
-	}
-	return themeColors("warning") + "[!]" + sgrReset
+	return defaultRenderer.Warning()
 }
 
 // Error returns an error indicator.
 func Error() string {
-	if !ColorEnabled() {
-		return "[X]"
-	}
-	return themeColors("error") + "[X]" + sgrReset
+	return defaultRenderer.Error()
 }
 
 // Info returns an info indicator.
 func Info() string {
-	if !ColorEnabled() {
-		return "[i]"
-	}
-	return themeColors("info") + "[i]" + sgrReset
+	return Colorize("[i]", "cyan")
 }
 
 // Symbol returns a symbol name rendered as ASCII markers.

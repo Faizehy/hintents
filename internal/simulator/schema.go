@@ -97,6 +97,7 @@ type SimulationResponse struct {
 	StackTrace        *WasmStackTrace      `json:"stack_trace,omitempty"`      // Enhanced WASM stack trace on traps
 	SourceLocation    string               `json:"source_location,omitempty"`
 	WasmOffset        *uint64              `json:"wasm_offset,omitempty"`
+	LinearMemoryDump  string               `json:"linear_memory_dump,omitempty"`
 }
 
 type CategorizedEvent struct {
