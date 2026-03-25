@@ -4,7 +4,9 @@
 package rpc
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -158,5 +160,122 @@ func TestWasmBytesFromContractCodeEntry_NotContractCode(t *testing.T) {
 	_, err := WasmBytesFromContractCodeEntry(b64)
 	if err == nil {
 		t.Error("expected error for non-contract-code entry")
+	}
+}
+
+func TestApplyWasmOverrideToLedgerEntries(t *testing.T) {
+	var contractID xdr.ContractId
+	for i := range 32 {
+		contractID[i] = byte(i + 1)
+	}
+	oldHash := xdr.Hash{}
+	for i := range 32 {
+		oldHash[i] = byte(255 - i)
+	}
+	newWasm := []byte{0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01}
+	newHash := xdr.Hash(sha256.Sum256(newWasm))
+
+	instanceKey, err := LedgerKeyForContractInstance(contractID)
+	if err != nil {
+		t.Fatalf("LedgerKeyForContractInstance: %v", err)
+	}
+	instanceKeyB64, err := EncodeLedgerKey(instanceKey)
+	if err != nil {
+		t.Fatalf("EncodeLedgerKey(instance): %v", err)
+	}
+	instanceEntry := xdr.LedgerEntry{
+		LastModifiedLedgerSeq: 42,
+		Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeContractData,
+			ContractData: &xdr.ContractDataEntry{
+				Contract: instanceKey.ContractData.Contract,
+				Key:      instanceKey.ContractData.Key,
+				Val: xdr.ScVal{
+					Type: xdr.ScValTypeScvContractInstance,
+					Instance: &xdr.ScContractInstance{
+						Executable: xdr.ContractExecutable{
+							Type:     xdr.ContractExecutableTypeContractExecutableWasm,
+							WasmHash: &oldHash,
+						},
+					},
+				},
+				Durability: instanceKey.ContractData.Durability,
+			},
+		},
+	}
+	instanceEntryB64, err := EncodeLedgerEntry(instanceEntry)
+	if err != nil {
+		t.Fatalf("EncodeLedgerEntry(instance): %v", err)
+	}
+
+	oldCodeKey := xdr.LedgerKey{
+		Type:         xdr.LedgerEntryTypeContractCode,
+		ContractCode: &xdr.LedgerKeyContractCode{Hash: oldHash},
+	}
+	oldCodeKeyB64, err := EncodeLedgerKey(oldCodeKey)
+	if err != nil {
+		t.Fatalf("EncodeLedgerKey(code): %v", err)
+	}
+	oldCodeEntry := xdr.LedgerEntry{
+		Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeContractCode,
+			ContractCode: &xdr.ContractCodeEntry{
+				Hash: oldHash,
+				Code: []byte{0x00, 0x61, 0x73, 0x6d},
+			},
+		},
+	}
+	oldCodeEntryB64, err := EncodeLedgerEntry(oldCodeEntry)
+	if err != nil {
+		t.Fatalf("EncodeLedgerEntry(code): %v", err)
+	}
+
+	entries := map[string]string{
+		instanceKeyB64: instanceEntryB64,
+		oldCodeKeyB64:  oldCodeEntryB64,
+	}
+
+	hashHex, err := ApplyWasmOverrideToLedgerEntries(entries, hex.EncodeToString(contractID[:]), newWasm)
+	if err != nil {
+		t.Fatalf("ApplyWasmOverrideToLedgerEntries: %v", err)
+	}
+	if hashHex != hex.EncodeToString(newHash[:]) {
+		t.Fatalf("expected hash %s, got %s", hex.EncodeToString(newHash[:]), hashHex)
+	}
+
+	updatedInstance, err := decodeLedgerEntry(entries[instanceKeyB64])
+	if err != nil {
+		t.Fatalf("decode updated instance: %v", err)
+	}
+	if updatedInstance.Data.ContractData == nil || updatedInstance.Data.ContractData.Val.Instance == nil {
+		t.Fatal("updated instance entry missing contract instance")
+	}
+	gotHash := updatedInstance.Data.ContractData.Val.Instance.Executable.WasmHash
+	if gotHash == nil || *gotHash != newHash {
+		t.Fatalf("expected instance wasm hash %x, got %v", newHash[:], gotHash)
+	}
+
+	newCodeKey := xdr.LedgerKey{
+		Type:         xdr.LedgerEntryTypeContractCode,
+		ContractCode: &xdr.LedgerKeyContractCode{Hash: newHash},
+	}
+	newCodeKeyB64, err := EncodeLedgerKey(newCodeKey)
+	if err != nil {
+		t.Fatalf("EncodeLedgerKey(new code): %v", err)
+	}
+	updatedCode, err := decodeLedgerEntry(entries[newCodeKeyB64])
+	if err != nil {
+		t.Fatalf("decode updated code entry: %v", err)
+	}
+	if updatedCode.Data.ContractCode == nil {
+		t.Fatal("updated code entry missing contract code")
+	}
+	if got := updatedCode.Data.ContractCode.Code; len(got) != len(newWasm) {
+		t.Fatalf("expected %d code bytes, got %d", len(newWasm), len(got))
+	}
+	for i := range newWasm {
+		if updatedCode.Data.ContractCode.Code[i] != newWasm[i] {
+			t.Fatalf("code byte %d mismatch: expected %02x, got %02x", i, newWasm[i], updatedCode.Data.ContractCode.Code[i])
+		}
 	}
 }
