@@ -463,6 +463,12 @@ func (c *Client) GetTransaction(ctx context.Context, hash string) (*TransactionR
 	return nil, &AllNodesFailedError{Failures: failures}
 }
 
+// WatchTransaction streams transaction status updates until the caller
+// cancels the context or a terminal status is reached.
+func (c *Client) WatchTransaction(ctx context.Context, hash string) (<-chan TxStatus, error) {
+	return NewTxStreamer(c).Stream(ctx, hash)
+}
+
 func (c *Client) getTransactionAttempt(ctx context.Context, hash string) (txResp *TransactionResponse, err error) {
 	timer := c.startMethodTimer(ctx, "rpc.get_transaction", map[string]string{
 		"network": c.GetNetworkName(),

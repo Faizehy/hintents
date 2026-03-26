@@ -539,8 +539,168 @@ func TestNewTxStreamer_PrefersWebSocket_WhenSupportedByServer(t *testing.T) {
 	}
 
 	streamer := NewTxStreamer(client)
-	if _, ok := streamer.(*wsStreamer); !ok {
-		t.Logf("server at %s did not accept WebSocket probe — treating as expected in offline CI", httpURL)
+	if _, ok := streamer.(*autoFallbackStreamer); !ok {
+		t.Fatalf("expected *autoFallbackStreamer when WebSocket is supported, got %T", streamer)
+	}
+}
+
+func TestClientWatchTransaction_UsesWebSocketStreaming(t *testing.T) {
+	srv := newMockWSServer(t, []string{TxStatusPending, TxStatusSuccess})
+	defer srv.Close()
+
+	client, err := NewClient(
+		WithNetwork(Testnet),
+		WithSorobanURL("http://"+srv.Listener.Addr().String()),
+		WithHTTPClient(srv.Client()),
+	)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	origInterval := wsStreamInterval
+	wsStreamInterval = 20 * time.Millisecond
+	defer func() { wsStreamInterval = origInterval }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ch, err := client.WatchTransaction(ctx, "feedface")
+	if err != nil {
+		t.Fatalf("WatchTransaction: %v", err)
+	}
+
+	var statuses []string
+	for status := range ch {
+		statuses = append(statuses, status.Status)
+	}
+
+	if len(statuses) < 2 {
+		t.Fatalf("expected multiple statuses from WatchTransaction, got %v", statuses)
+	}
+	if got := statuses[len(statuses)-1]; got != TxStatusSuccess {
+		t.Fatalf("final status = %q, want %q", got, TxStatusSuccess)
+	}
+}
+
+func TestClientWatchTransaction_FallsBackWhenWebSocketStreamDrops(t *testing.T) {
+	upgradeCount := 0
+	httpStatuses := []string{TxStatusPending, TxStatusSuccess}
+	httpIdx := 0
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+			upgradeCount++
+
+			key := r.Header.Get("Sec-Websocket-Key")
+			accept := wsAcceptKey(key)
+
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				http.Error(w, "hijacking not supported", http.StatusInternalServerError)
+				return
+			}
+
+			conn, bufrw, err := hj.Hijack()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			fmt.Fprintf(bufrw,
+				"HTTP/1.1 101 Switching Protocols\r\n"+
+					"Upgrade: websocket\r\n"+
+					"Connection: Upgrade\r\n"+
+					"Sec-WebSocket-Accept: %s\r\n"+
+					"\r\n",
+				accept,
+			)
+			if err := bufrw.Flush(); err != nil {
+				return
+			}
+
+			// First upgrade is the probe. On the actual stream, return one
+			// PENDING update and then drop the connection so polling can resume.
+			if upgradeCount == 1 {
+				return
+			}
+
+			msg, err := wsReadFrame(bufrw.Reader)
+			if err != nil {
+				return
+			}
+
+			var req jsonrpcRequest
+			if err := json.Unmarshal(msg, &req); err != nil {
+				return
+			}
+
+			resp := fmt.Sprintf(
+				`{"jsonrpc":"2.0","id":%d,"result":{"status":%q,"ledger":123}}`,
+				req.ID, TxStatusPending,
+			)
+			if err := wsWriteFrameUnmasked(conn, []byte(resp)); err != nil {
+				t.Errorf("wsWriteFrameUnmasked: %v", err)
+			}
+			return
+		}
+
+		if r.Method != http.MethodPost {
+			http.Error(w, "expected POST", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if httpIdx >= len(httpStatuses) {
+			httpIdx = len(httpStatuses) - 1
+		}
+		status := httpStatuses[httpIdx]
+		httpIdx++
+
+		resp := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"result":{"status":%q,"ledger":456}}`, status)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, resp)
+	}))
+	defer srv.Close()
+
+	client, err := NewClient(
+		WithNetwork(Testnet),
+		WithSorobanURL(srv.URL),
+		WithHTTPClient(srv.Client()),
+	)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	origWSInterval := wsStreamInterval
+	origPollInterval := pollStreamInterval
+	wsStreamInterval = 20 * time.Millisecond
+	pollStreamInterval = 20 * time.Millisecond
+	defer func() {
+		wsStreamInterval = origWSInterval
+		pollStreamInterval = origPollInterval
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ch, err := client.WatchTransaction(ctx, "decafbad")
+	if err != nil {
+		t.Fatalf("WatchTransaction: %v", err)
+	}
+
+	var statuses []string
+	for status := range ch {
+		statuses = append(statuses, status.Status)
+	}
+
+	if len(statuses) < 2 {
+		t.Fatalf("expected fallback statuses, got %v", statuses)
+	}
+	if got := statuses[len(statuses)-1]; got != TxStatusSuccess {
+		t.Fatalf("final status = %q, want %q", got, TxStatusSuccess)
+	}
+	if upgradeCount < 2 {
+		t.Fatalf("expected probe and watch WebSocket upgrades, got %d", upgradeCount)
 	}
 }
 
