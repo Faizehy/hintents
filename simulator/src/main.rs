@@ -54,7 +54,7 @@ fn init_logger() {
 }
 
 fn send_error(msg: String) {
-    let trace = WasmStackTrace::from_host_error(&msg);
+    let trace = WasmStackTrace::from_host_error(&msg, None);
     let res = SimulationResponse {
         status: "error".to_string(),
         error: Some(msg),
@@ -456,10 +456,10 @@ fn main() {
                 }
                 let mapper = SourceMapper::new_with_options(wasm_bytes, request.no_cache);
                 if mapper.has_debug_symbols() {
-                    eprintln!("Debug symbols found in WASM");
+                    eprintln!("Debug symbols found in WASM. SourceMapper initialized.");
                     Some(mapper)
                 } else {
-                    eprintln!("No debug symbols found in WASM");
+                    eprintln!("No debug symbols found in WASM. SourceMapper not used.");
                     None
                 }
             }
@@ -782,7 +782,16 @@ fn main() {
             let error_debug = format!("{:?}", host_error);
             let _error_msg = format!("{:?}", host_error);
             let decoded_msg = decode_error(&error_debug);
-            let wasm_trace = WasmStackTrace::from_host_error(&error_debug);
+
+            let wasm_trace =
+                WasmStackTrace::from_host_error(&error_debug, source_mapper.as_ref());
+
+            if wasm_trace.frames.iter().any(|f| f.source_location.is_some()) {
+                eprintln!("Source locations resolved for HostError trace.");
+            } else {
+                eprintln!("No source locations resolved for HostError trace.");
+            }
+
             let trace_display = wasm_trace.display();
 
             let _structured_error = StructuredError {
@@ -917,7 +926,16 @@ fn main() {
                 "Unknown panic".to_string()
             };
 
-            let wasm_trace = WasmStackTrace::from_panic(&panic_msg);
+            let mut wasm_trace = WasmStackTrace::from_panic(&panic_msg);
+            if let Some(ref mapper) = source_mapper {
+                eprintln!("Attempting to resolve sources for Panic trace...");
+                wasm_trace.resolve_sources(mapper);
+                if wasm_trace.frames.iter().any(|f| f.source_location.is_some()) {
+                    eprintln!("Source locations resolved for Panic trace.");
+                } else {
+                    eprintln!("No source locations resolved for Panic trace.");
+                }
+            }
             let memory_limit_exceeded = panic_msg.contains(ERR_MEMORY_LIMIT_EXCEEDED);
 
             let response = SimulationResponse {

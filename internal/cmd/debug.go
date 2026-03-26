@@ -772,9 +772,11 @@ func runLocalWasmReplay() error {
 	fmt.Println()
 
 	// Verify WASM file exists
-	if _, err := os.Stat(wasmPath); os.IsNotExist(err) {
-		return errors.WrapValidationError(fmt.Sprintf("WASM file not found: %s", wasmPath))
+	wasmBytes, err := os.ReadFile(wasmPath)
+	if err != nil {
+		return errors.WrapValidationError(fmt.Sprintf("WASM file not found or unreadable: %s", wasmPath))
 	}
+	wasmBase64 := base64.StdEncoding.EncodeToString(wasmBytes)
 
 	fmt.Printf("%s Local WASM Replay Mode\n", visualizer.Symbol("wrench"))
 	fmt.Printf("WASM File: %s\n", wasmPath)
@@ -794,6 +796,7 @@ func runLocalWasmReplay() error {
 		LedgerEntries: nil, // Mock state will be generated
 		WasmPath:      &wasmPath,
 		MockArgs:      &args,
+		ContractWasm:  &wasmBase64, // Pass the WASM binary for source mapping
 	}
 	applySimulationFeeMocks(req)
 
@@ -811,6 +814,14 @@ func runLocalWasmReplay() error {
 		fmt.Printf("%s Execution failed\n", visualizer.Error())
 		if resp.Error != "" {
 			fmt.Printf("Error: %s\n", resp.Error)
+		}
+
+		if resp.StackTrace != nil {
+			printWasmBacktrace(resp.StackTrace)
+		}
+
+		if resp.SourceLocation != "" {
+			fmt.Printf("%s Top-level Location: %s\n", visualizer.Symbol("location"), resp.SourceLocation)
 		}
 
 		// Fallback to WAT disassembly if source mapping is unavailable but we have an offset
@@ -962,6 +973,16 @@ func printSimulationResult(network string, res *simulator.SimulationResponse) {
 	fmt.Printf("Status: %s\n", res.Status)
 	if res.Error != "" {
 		fmt.Printf("Error: %s\n", res.Error)
+	}
+
+	// Display stack trace with resolved source locations when available.
+	if res.StackTrace != nil && len(res.StackTrace.Frames) > 0 {
+		printWasmBacktrace(res.StackTrace)
+	}
+
+	// Preserve top-level source location display for compatibility.
+	if res.SourceLocation != "" {
+		fmt.Printf("%s Location: %s\n", visualizer.Symbol("location"), res.SourceLocation)
 	}
 
 	// Display budget usage if available
@@ -1147,6 +1168,33 @@ func init() {
 
 	rootCmd.AddCommand(debugCmd)
 }
+
+func printWasmBacktrace(trace *simulator.WasmStackTrace) {
+	fmt.Printf("\nBacktrace (%d frames):\n", len(trace.Frames))
+	for _, frame := range trace.Frames {
+		name := "<unknown>"
+		if frame.FuncName != nil {
+			name = *frame.FuncName
+		} else if frame.FuncIndex != nil {
+			name = fmt.Sprintf("func[%d]", *frame.FuncIndex)
+		}
+
+		location := ""
+		if frame.SourceLocation != nil {
+			if frame.SourceLocation.Column > 0 {
+				location = fmt.Sprintf(" %s:%d:%d", frame.SourceLocation.File, frame.SourceLocation.Line, frame.SourceLocation.Column)
+			} else {
+				location = fmt.Sprintf(" %s:%d", frame.SourceLocation.File, frame.SourceLocation.Line)
+			}
+		} else if frame.WasmOffset != nil {
+			location = fmt.Sprintf(" @ 0x%x", *frame.WasmOffset)
+		}
+
+		fmt.Printf("  #%d %s%s\n", frame.Index, name, location)
+	}
+	fmt.Println()
+}
+
 func displaySourceLocation(loc *simulator.SourceLocation) {
 	fmt.Printf("%s Location: %s:%d:%d\n", visualizer.Symbol("location"), loc.File, loc.Line, loc.Column)
 
