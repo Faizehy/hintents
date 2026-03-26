@@ -365,11 +365,11 @@ func createHTTPClient(token string, timeout time.Duration, middlewares ...Middle
 	// Retry wraps auth so that transient errors trigger a new authenticated attempt.
 	transport = NewRetryTransport(cfg, transport)
 
-	// User-supplied middlewares are applied outermost-last, so the first middleware
-	// in the slice is the first to intercept an outbound request.
-	for _, mw := range middlewares {
-		if mw != nil {
-			transport = mw(transport)
+	// Apply middlewares in reverse so that middlewares[0] becomes the outermost
+	// wrapper and therefore the first to intercept an outbound request.
+	for i := len(middlewares) - 1; i >= 0; i-- {
+		if middlewares[i] != nil {
+			transport = middlewares[i](transport)
 		}
 	}
 
