@@ -71,9 +71,9 @@ impl SimHost {
     /// Buffer a contract event for inclusion in the next snapshot.
     ///
     /// Call this from the simulation loop each time an event is emitted so that
-    /// `drain_events_for_snapshot` can associate the right events with each
+    /// `_drain_events_for_snapshot` can associate the right events with each
     /// snapshot window.
-    pub fn push_event(&mut self, event: String) {
+    pub fn _push_event(&mut self, event: String) {
         self.pending_events.push(event);
     }
 
@@ -82,7 +82,7 @@ impl SimHost {
     /// The returned `Vec` is moved into the `events` field of the `StateSnapshot`
     /// being constructed.  After this call the buffer is empty and ready for the
     /// next snapshot window.
-    pub fn drain_events_for_snapshot(&mut self) -> Vec<String> {
+    pub fn _drain_events_for_snapshot(&mut self) -> Vec<String> {
         std::mem::take(&mut self.pending_events)
     }
 }
@@ -125,27 +125,27 @@ mod tests {
     #[test]
     fn test_drain_events_for_snapshot_returns_buffered_events() {
         let mut host = SimHost::new(None, None, None);
-        host.push_event("event_a".to_string());
-        host.push_event("event_b".to_string());
+        host._push_event("event_a".to_string());
+        host._push_event("event_b".to_string());
 
-        let drained = host.drain_events_for_snapshot();
+        let drained = host._drain_events_for_snapshot();
         assert_eq!(drained, vec!["event_a", "event_b"]);
     }
 
     #[test]
     fn test_drain_events_for_snapshot_clears_buffer() {
         let mut host = SimHost::new(None, None, None);
-        host.push_event("event_a".to_string());
-        let _ = host.drain_events_for_snapshot();
+        host._push_event("event_a".to_string());
+        let _ = host._drain_events_for_snapshot();
 
-        let second_drain = host.drain_events_for_snapshot();
+        let second_drain = host._drain_events_for_snapshot();
         assert!(second_drain.is_empty());
     }
 
     #[test]
     fn test_drain_events_for_snapshot_empty_buffer() {
         let mut host = SimHost::new(None, None, None);
-        let drained = host.drain_events_for_snapshot();
+        let drained = host._drain_events_for_snapshot();
         assert!(drained.is_empty());
     }
 }
