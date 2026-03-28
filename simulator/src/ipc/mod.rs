@@ -138,3 +138,5 @@ mod tests {
         emit_snapshot_frame(0, serde_json::json!({"test": true}));
     }
 }
+pub mod decompress;
+pub mod validate;
