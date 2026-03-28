@@ -11,8 +11,8 @@ use soroban_env_host::{
 /// Wrapper around the Soroban Host to manage initialization and execution context.
 pub struct SimHost {
     pub inner: Host,
-    /// Events buffered since the last call to `drain_events_for_snapshot`.
-    pending_events: Vec<String>,
+    /// Events buffered since the last call to `_drain_events_for_snapshot`.
+    _pending_events: Vec<String>,
 }
 
 impl SimHost {
@@ -44,7 +44,7 @@ impl SimHost {
 
         Self {
             inner: host,
-            pending_events: Vec::new(),
+            _pending_events: Vec::new(),
         }
     }
 
@@ -74,7 +74,7 @@ impl SimHost {
     /// `_drain_events_for_snapshot` can associate the right events with each
     /// snapshot window.
     pub fn _push_event(&mut self, event: String) {
-        self.pending_events.push(event);
+        self._pending_events.push(event);
     }
 
     /// Return all events buffered since the last snapshot and clear the buffer.
@@ -83,7 +83,7 @@ impl SimHost {
     /// being constructed.  After this call the buffer is empty and ready for the
     /// next snapshot window.
     pub fn _drain_events_for_snapshot(&mut self) -> Vec<String> {
-        std::mem::take(&mut self.pending_events)
+        std::mem::take(&mut self._pending_events)
     }
 }
 
