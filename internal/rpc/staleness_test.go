@@ -49,7 +49,7 @@ func TestCheckStaleness(t *testing.T) {
 		// we'll have to be clever or just test the fetchLatestFromSDF function directly if it was exported.
 		// Since it's not exported, we can test CheckStaleness by just ensuring it doesn't return error
 		// and doesn't crash when it hits a "non-testnet/non-public" network (it returns nil).
-		
+
 		err := c.CheckStaleness(context.Background(), "standalone")
 		assert.NoError(t, err)
 	})
