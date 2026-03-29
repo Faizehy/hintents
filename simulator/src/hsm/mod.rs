@@ -103,14 +103,16 @@ impl SignerFactory {
     pub async fn create_from_config(config: &SignerConfig) -> Result<Box<dyn Signer>, SignerError> {
         match config.signer_type.as_str() {
             "software" => {
-                let software_config = config.software.as_ref()
-                    .ok_or_else(|| SignerError::Config("Software signer config not provided".to_string()))?;
+                let software_config = config.software.as_ref().ok_or_else(|| {
+                    SignerError::Config("Software signer config not provided".to_string())
+                })?;
                 let software_signer = software::SoftwareSigner::from_config(software_config)?;
                 Ok(Box::new(software_signer))
             }
             "pkcs11" => {
-                let pkcs11_config = config.pkcs11.clone()
-                    .ok_or_else(|| SignerError::Config("PKCS#11 signer config not provided".to_string()))?;
+                let pkcs11_config = config.pkcs11.clone().ok_or_else(|| {
+                    SignerError::Config("PKCS#11 signer config not provided".to_string())
+                })?;
                 let pkcs11_signer = pkcs11::Pkcs11Signer::from_config(pkcs11_config).await?;
                 Ok(Box::new(pkcs11_signer))
             }
@@ -155,11 +157,11 @@ pub struct SignerConfig {
 impl SignerConfig {
     /// Create configuration from environment variables
     pub fn from_env() -> Result<Self, SignerError> {
-        let signer_type = std::env::var("ERST_SIGNER_TYPE")
-            .unwrap_or_else(|_| "software".to_string());
+        let signer_type =
+            std::env::var("ERST_SIGNER_TYPE").unwrap_or_else(|_| "software".to_string());
 
-        let algorithm = std::env::var("ERST_SIGNER_ALGORITHM")
-            .unwrap_or_else(|_| "ed25519".to_string());
+        let algorithm =
+            std::env::var("ERST_SIGNER_ALGORITHM").unwrap_or_else(|_| "ed25519".to_string());
 
         let mut config = SignerConfig {
             signer_type,
@@ -324,7 +326,7 @@ mod tests {
         // Temporarily unset environment variables
         let _type = std::env::var("ERST_SIGNER_TYPE");
         let _algo = std::env::var("ERST_SIGNER_ALGORITHM");
-        
+
         std::env::remove_var("ERST_SIGNER_TYPE");
         std::env::remove_var("ERST_SIGNER_ALGORITHM");
 

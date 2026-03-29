@@ -91,9 +91,7 @@ impl Signer for MockHsm {
         self.simulate_latency().await;
 
         if self.should_fail() {
-            return Err(SignerError::Hardware(
-                "Simulated HSM failure".to_string(),
-            ));
+            return Err(SignerError::Hardware("Simulated HSM failure".to_string()));
         }
 
         let signature = self.signing_key.sign(data);
@@ -108,9 +106,7 @@ impl Signer for MockHsm {
         self.simulate_latency().await;
 
         if self.should_fail() {
-            return Err(SignerError::Hardware(
-                "Simulated HSM failure".to_string(),
-            ));
+            return Err(SignerError::Hardware("Simulated HSM failure".to_string()));
         }
 
         let verifying_key = self.signing_key.verifying_key();
