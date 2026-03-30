@@ -37,10 +37,10 @@ type StateRow struct {
 //	    }
 //	}
 type TraceView struct {
-	tree       *trace.TreeRenderer
-	stateRows  []StateRow
+	tree        *trace.TreeRenderer
+	stateRows   []StateRow
 	stateScroll int
-	stateSel   int
+	stateSel    int
 }
 
 func NewTraceView(root *trace.TraceNode) *TraceView {

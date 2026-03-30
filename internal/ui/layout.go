@@ -32,7 +32,7 @@ func (p Pane) String() string {
 type SplitLayout struct {
 	Width  int
 	Height int
-	Focus Pane
+	Focus  Pane
 
 	LeftTitle  string
 	RightTitle string
