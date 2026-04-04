@@ -7,6 +7,10 @@ type SimulationRequest struct {
 	EnvelopeXdr      string            `json:"envelope_xdr"`
 	ResultMetaXdr    string            `json:"result_meta_xdr"`
 	LedgerEntries    map[string]string `json:"ledger_entries,omitempty"`
+	ControlCommand   string            `json:"control_command,omitempty"`
+	RewindStep       *int              `json:"rewind_step,omitempty"`
+	ForkParams       map[string]string `json:"fork_params,omitempty"`
+	HarnessReset     bool              `json:"harness_reset,omitempty"`
 	Timestamp        int64             `json:"timestamp,omitempty"`
 	LedgerSequence   uint32            `json:"ledger_sequence,omitempty"`
 	WasmPath         *string           `json:"wasm_path,omitempty"`
