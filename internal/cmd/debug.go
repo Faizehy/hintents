@@ -389,33 +389,36 @@ Local WASM Replay Mode:
 		// Fetch transaction details
 		if watchFlag {
 			spinner := watch.NewSpinner()
-			poller := watch.NewPoller(watch.PollerConfig{
-				InitialInterval: 1 * time.Second,
-				MaxInterval:     10 * time.Second,
-				TimeoutDuration: time.Duration(watchTimeoutFlag) * time.Second,
-			})
-
 			spinner.Start("Waiting for transaction to appear on-chain...")
+			watchCtx, cancelWatch := context.WithTimeout(ctx, time.Duration(watchTimeoutFlag)*time.Second)
+			defer cancelWatch()
 
-			result, err := poller.Poll(ctx, func(pollCtx context.Context) (interface{}, error) {
-				_, pollErr := client.GetTransaction(pollCtx, txHash)
-				if pollErr != nil {
-					return nil, pollErr
-				}
-				return true, nil
-			}, nil)
-
+			statusCh, err := client.WatchTransaction(watchCtx, txHash)
 			if err != nil {
-				spinner.StopWithError("Failed to poll for transaction")
+				spinner.StopWithError("Failed to start transaction watch")
 				return errors.WrapSimulationLogicError(fmt.Sprintf("watch mode error: %v", err))
 			}
 
-			if !result.Found {
+			var finalStatus *rpc.TxStatus
+			for status := range statusCh {
+				if status.IsFinal() {
+					statusCopy := status
+					finalStatus = &statusCopy
+					break
+				}
+			}
+
+			if err := watchCtx.Err(); err != nil {
 				spinner.StopWithError("Transaction not found within timeout")
 				return errors.WrapTransactionNotFound(fmt.Errorf("not found after %d seconds", watchTimeoutFlag))
 			}
 
-			spinner.StopWithMessage("Transaction found! Starting debug...")
+			if finalStatus == nil {
+				spinner.StopWithError("Transaction watch ended unexpectedly")
+				return errors.WrapSimulationLogicError("watch mode ended before a final transaction status was received")
+			}
+
+			spinner.StopWithMessage(fmt.Sprintf("Transaction reached %s. Starting debug...", strings.ToLower(finalStatus.Status)))
 		}
 
 		fmt.Printf("Fetching transaction: %s\n", txHash)

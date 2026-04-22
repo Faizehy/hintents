@@ -96,11 +96,78 @@ func NewTxStreamer(c *Client) TxStreamer {
 		defer cancel()
 		if probeWebSocket(probeCtx, wsURL, c.token) {
 			logger.Logger.Info("WebSocket streaming enabled", "url", wsURL)
-			return &wsStreamer{client: c, wsURL: wsURL}
+			return &autoFallbackStreamer{
+				client:          c,
+				wsURL:           wsURL,
+				pollingFallback: &pollingStreamer{client: c},
+			}
 		}
 	}
 	logger.Logger.Info("WebSocket not supported, using JSON-RPC polling", "url", c.SorobanURL)
 	return &pollingStreamer{client: c}
+}
+
+// autoFallbackStreamer prefers WebSockets but switches to JSON-RPC polling if
+// the WebSocket stream cannot be established or ends before a terminal status.
+type autoFallbackStreamer struct {
+	client          *Client
+	wsURL           string
+	pollingFallback *pollingStreamer
+}
+
+// Stream implements TxStreamer.
+func (s *autoFallbackStreamer) Stream(ctx context.Context, hash string) (<-chan TxStatus, error) {
+	ws := &wsStreamer{client: s.client, wsURL: s.wsURL}
+	wsCh, err := ws.Stream(ctx, hash)
+	if err != nil {
+		logger.Logger.Warn("WebSocket stream setup failed, falling back to JSON-RPC polling", "hash", hash, "error", err)
+		return s.pollingFallback.Stream(ctx, hash)
+	}
+
+	out := make(chan TxStatus, 8)
+	go func() {
+		defer close(out)
+
+		sawFinal := false
+		for status := range wsCh {
+			if !forwardTxStatus(ctx, out, status) {
+				return
+			}
+			if status.IsFinal() {
+				sawFinal = true
+				return
+			}
+		}
+
+		if sawFinal || ctx.Err() != nil {
+			return
+		}
+
+		logger.Logger.Warn("WebSocket stream ended before a final transaction status, falling back to JSON-RPC polling", "hash", hash)
+
+		pollCh, err := s.pollingFallback.Stream(ctx, hash)
+		if err != nil {
+			logger.Logger.Error("Polling fallback failed to start", "hash", hash, "error", err)
+			return
+		}
+
+		for status := range pollCh {
+			if !forwardTxStatus(ctx, out, status) {
+				return
+			}
+		}
+	}()
+
+	return out, nil
+}
+
+func forwardTxStatus(ctx context.Context, out chan<- TxStatus, status TxStatus) bool {
+	select {
+	case out <- status:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // ---------------------------------------------------------------------------
