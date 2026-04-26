@@ -66,7 +66,8 @@ func main() {
 	s, _ := signer.NewInMemorySigner(privateKeyHex)
 	hashes := make([]string, 5)
 	for i := 0; i < 5; i++ {
-		genLog, err := cmd.GenerateWithSigner(
+		var genLog *cmd.AuditLog
+		genLog, err = cmd.GenerateWithSigner(
 			"tx-hash-12345",
 			"envelope-xdr-data",
 			"result-meta-xdr-data",

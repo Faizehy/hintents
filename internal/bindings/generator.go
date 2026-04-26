@@ -365,7 +365,7 @@ func (g *Generator) generateClient() string {
 
 	// Generate main client class
 	className := toPascalCase(g.config.PackageName) + "Client"
-	fmt.Fprintf(b, "export class %s {\n", className)
+	fmt.Fprintf(&b, "export class %s {\n", className)
 	b.WriteString("  private config: ClientConfig;\n")
 	b.WriteString("  private server: StellarSdk.SorobanRpc.Server;\n")
 	b.WriteString("  private simulator?: ErstSimulator;\n\n")
