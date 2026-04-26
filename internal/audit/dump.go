@@ -18,11 +18,11 @@ type Dump struct {
 
 // SignedDump extends Dump with signing metadata (matches SignedAuditLog from TS).
 type SignedDump struct {
-	Trace     Dump `json:"trace"`
-	Hash      string    `json:"hash"`
-	Signature string    `json:"signature"`
-	Algorithm string    `json:"algorithm"`
-	PublicKey string    `json:"publicKey"`
+	Trace     Dump   `json:"trace"`
+	Hash      string `json:"hash"`
+	Signature string `json:"signature"`
+	Algorithm string `json:"algorithm"`
+	PublicKey string `json:"publicKey"`
 	Signer    struct {
 		Provider string `json:"provider"`
 	} `json:"signer"`

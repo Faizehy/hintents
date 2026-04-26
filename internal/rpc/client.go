@@ -23,7 +23,6 @@ import (
 	"github.com/dotandev/hintents/internal/errors"
 )
 
-
 // HTTPClient is an interface that matches horizonclient.HTTP.
 type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
@@ -55,7 +54,6 @@ type Client struct {
 	rotateCount     int
 	healthCollector *HealthCollector
 }
-
 
 // attempts returns the number of retry attempts for failover loops (at least 1)
 func (c *Client) attempts() int { //nolint:unused

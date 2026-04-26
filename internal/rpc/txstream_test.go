@@ -903,11 +903,11 @@ func TestWsReadMessage_ReassemblesFragments(t *testing.T) {
 	pr, pw := io.Pipe()
 	go func() {
 		if err := wsWriteFragmented(pw, want, 3); err != nil {
-				_ = pw.CloseWithError(err)
-				return
-			}
-			_ = pw.Close()
-		}()
+			_ = pw.CloseWithError(err)
+			return
+		}
+		_ = pw.Close()
+	}()
 
 	br := bufio.NewReader(pr)
 	got, err := wsReadMessage(br)

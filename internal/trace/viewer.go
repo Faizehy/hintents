@@ -1037,4 +1037,3 @@ func (v *InteractiveViewer) handleYank(args []string) {
 
 	fmt.Printf("%s Copied raw XDR to clipboard\n", visualizer.Symbol("sparkles"))
 }
-
