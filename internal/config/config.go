@@ -8,9 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/dotandev/hintents/internal/errors"
 )
+
+func joinPath(parts ...string) string {
+	return strings.Join(parts, "/")
+}
 
 // -- Interfaces --
 
@@ -89,7 +94,7 @@ var defaultConfig = &Config{
 	Network:        NetworkTestnet,
 	SimulatorPath:  "",
 	LogLevel:       "info",
-	CachePath:      filepath.Join(os.ExpandEnv("$HOME"), ".erst", "cache"),
+	CachePath:      joinPath(os.ExpandEnv("$HOME"), ".erst", "cache"),
 	RequestTimeout: defaultRequestTimeout,
 	MaxCacheSize:   0,
 	MaxTraceDepth:  50,
@@ -212,7 +217,7 @@ func GetGeneralConfigPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".erst", "config.json"), nil
+	return joinPath(home, ".erst", "config.json"), nil
 }
 
 func LoadConfig() (*Config, error) {
