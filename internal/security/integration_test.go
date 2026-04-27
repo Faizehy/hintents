@@ -5,7 +5,6 @@ package security
 
 import (
 	"encoding/base64"
-	"strings"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/xdr"
