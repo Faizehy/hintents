@@ -15,7 +15,7 @@ import (
 var elapsedPattern = regexp.MustCompile(`(?i)elapsed(?:[_\s-]*time)?(?:[_\s-]*(ms|us|ns|s))?[\s:=]+([0-9]+(?:\.[0-9]+)?)`)
 
 // GenerateCallGraphSVG generates a premium SVG call graph from a decoder.CallNode tree
-func GenerateCallGraphSVG(root *decoder.CallNode) string {
+func GenerateCallGraphSVG(root *decoder.CallNode, maxDepth int) string {
 	if root == nil {
 		return ""
 	}
@@ -31,18 +31,22 @@ func GenerateCallGraphSVG(root *decoder.CallNode) string {
 	positions := make(map[*decoder.CallNode][2]int) // node -> [x, y]
 
 	// First pass: calculate tree width and positions
-	var calculatePositions func(node *decoder.CallNode, x, y int) int
-	calculatePositions = func(node *decoder.CallNode, x, y int) int {
+	actualMaxDepth := 0
+	var calculatePositions func(node *decoder.CallNode, x, y, depth int) int
+	calculatePositions = func(node *decoder.CallNode, x, y, depth int) int {
 		positions[node] = [2]int{x, y}
+		if depth > actualMaxDepth {
+			actualMaxDepth = depth
+		}
 
-		if len(node.SubCalls) == 0 {
+		if len(node.SubCalls) == 0 || (maxDepth > 0 && depth >= maxDepth) {
 			return nodeWidth
 		}
 
 		totalChildWidth := 0
 		currentX := x
 		for i, child := range node.SubCalls {
-			childWidth := calculatePositions(child, currentX, y+nodeHeight+verticalGap)
+			childWidth := calculatePositions(child, currentX, y+nodeHeight+verticalGap, depth+1)
 			totalChildWidth += childWidth
 			if i < len(node.SubCalls)-1 {
 				totalChildWidth += horizontalGap
@@ -55,24 +59,12 @@ func GenerateCallGraphSVG(root *decoder.CallNode) string {
 		return totalChildWidth
 	}
 
-	totalWidth := calculatePositions(root, 0, 0)
+	totalWidth := calculatePositions(root, 0, 0, 1)
 	if totalWidth < nodeWidth {
 		totalWidth = nodeWidth
 	}
 
-	// Find max depth for height
-	maxDepth := 0
-	var findDepth func(node *decoder.CallNode, depth int)
-	findDepth = func(node *decoder.CallNode, depth int) {
-		if depth > maxDepth {
-			maxDepth = depth
-		}
-		for _, child := range node.SubCalls {
-			findDepth(child, depth+1)
-		}
-	}
-	findDepth(root, 1)
-	totalHeight := maxDepth*(nodeHeight+verticalGap) - verticalGap + 40 // + padding
+	totalHeight := actualMaxDepth*(nodeHeight+verticalGap) - verticalGap + 40 // + padding
 
 	// Build SVG
 	var sb strings.Builder
@@ -129,7 +121,10 @@ func GenerateCallGraphSVG(root *decoder.CallNode) string {
 	// Second pass: Draw links
 	for node, pos := range positions {
 		for _, child := range node.SubCalls {
-			childPos := positions[child]
+			childPos, ok := positions[child]
+			if !ok {
+				continue
+			}
 			x1 := pos[0] + nodeWidth/2
 			y1 := pos[1] + nodeHeight
 			x2 := childPos[0] + nodeWidth/2
@@ -151,15 +146,22 @@ func GenerateCallGraphSVG(root *decoder.CallNode) string {
 			contractShort = contractShort[:6] + "..." + contractShort[len(contractShort)-4:]
 		}
 
+		collapsedText := ""
+		if maxDepth > 0 && len(node.SubCalls) > 0 {
+			if _, ok := positions[node.SubCalls[0]]; !ok {
+				collapsedText = fmt.Sprintf(` <tspan fill="var(--link)">[+%d calls]</tspan>`, len(node.SubCalls))
+			}
+		}
+
 		fmt.Fprintf(&sb, `
 	<g class="%s" transform="translate(%d, %d)">
 		<rect class="node-box" width="%d" height="%d" rx="8" stroke="var(--node-border)" />
 		<text x="12" y="24" class="node-title">%s</text>
-		<text x="12" y="40" class="node-sub">%s</text>
+		<text x="12" y="40" class="node-sub">%s%s</text>
 		<text x="12" y="60" class="node-metric" fill="var(--cpu)">CPU: %d</text>
 		<text x="100" y="60" class="node-metric" fill="var(--mem)">Mem: %s</text>
 		<text x="12" y="78" class="node-metric" fill="var(--text-mute)">Elapsed: %s</text>
-	</g>`, gasLevel(node.CPUInstructions), x, y, nodeWidth, nodeHeight, node.Function, contractShort, node.CPUInstructions, formatBytes(node.MemoryBytes), formatElapsedPerCall(node))
+	</g>`, gasLevel(node.CPUInstructions), x, y, nodeWidth, nodeHeight, node.Function, contractShort, collapsedText, node.CPUInstructions, formatBytes(node.MemoryBytes), formatElapsedPerCall(node))
 	}
 
 	// Legend footer
