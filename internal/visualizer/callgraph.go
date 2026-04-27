@@ -5,10 +5,14 @@ package visualizer
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/dotandev/hintents/internal/decoder"
 )
+
+var elapsedPattern = regexp.MustCompile(`(?i)elapsed(?:[_\s-]*time)?(?:[_\s-]*(ms|us|ns|s))?[\s:=]+([0-9]+(?:\.[0-9]+)?)`)
 
 // GenerateCallGraphSVG generates a premium SVG call graph from a decoder.CallNode tree
 func GenerateCallGraphSVG(root *decoder.CallNode) string {
@@ -18,7 +22,7 @@ func GenerateCallGraphSVG(root *decoder.CallNode) string {
 
 	// Layout and dimensions
 	nodeWidth := 200
-	nodeHeight := 80
+	nodeHeight := 96
 	horizontalGap := 40
 	verticalGap := 60
 
@@ -138,11 +142,37 @@ func GenerateCallGraphSVG(root *decoder.CallNode) string {
 		<text x="12" y="40" class="node-sub">%s</text>
 		<text x="12" y="60" class="node-metric" fill="var(--cpu)">CPU: %d</text>
 		<text x="100" y="60" class="node-metric" fill="var(--mem)">Mem: %s</text>
-	</g>`, x, y, nodeWidth, nodeHeight, node.Function, contractShort, node.CPUInstructions, formatBytes(node.MemoryBytes))
+		<text x="12" y="78" class="node-metric" fill="var(--text-mute)">Elapsed: %s</text>
+	</g>`, x, y, nodeWidth, nodeHeight, node.Function, contractShort, node.CPUInstructions, formatBytes(node.MemoryBytes), formatElapsedPerCall(node))
 	}
 
 	sb.WriteString("</svg>")
 	return sb.String()
+}
+
+func formatElapsedPerCall(node *decoder.CallNode) string {
+	for _, event := range node.Events {
+		if event.Data == "" {
+			continue
+		}
+		m := elapsedPattern.FindStringSubmatch(event.Data)
+		if len(m) < 3 {
+			continue
+		}
+		unit := strings.ToLower(strings.TrimSpace(m[1]))
+		valueRaw := strings.TrimSpace(m[2])
+		if valueRaw == "" {
+			continue
+		}
+		if unit == "" {
+			unit = "ms"
+		}
+		if _, err := strconv.ParseFloat(valueRaw, 64); err != nil {
+			continue
+		}
+		return valueRaw + unit
+	}
+	return "n/a"
 }
 
 func formatBytes(b uint64) string {
