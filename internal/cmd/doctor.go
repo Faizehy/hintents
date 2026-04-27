@@ -22,6 +22,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func joinPath(parts ...string) string {
+	return strings.Join(parts, "/")
+}
+
 // DependencyID is a unique identifier for each dependency (Issue #8: type-safe dispatch)
 type DependencyID string
 
@@ -322,7 +326,7 @@ func checkCacheDir(verbose bool) DependencyStatus {
 		return dep
 	}
 
-	cacheDir := filepath.Join(homeDir, ".erst")
+	cacheDir := joinPath(homeDir, ".erst")
 
 	// Check if cache directory exists
 	if _, err := os.Stat(cacheDir); err != nil {
@@ -336,7 +340,7 @@ func checkCacheDir(verbose bool) DependencyStatus {
 	// Verify subdirectories exist
 	requiredDirs := []string{"transactions", "protocols", "contracts"}
 	for _, subdir := range requiredDirs {
-		path := filepath.Join(cacheDir, subdir)
+		path := joinPath(cacheDir, subdir)
 		if _, err := os.Stat(path); err != nil {
 			dep.FixHint = fmt.Sprintf("Missing subdirectory: %s", subdir)
 			return dep
@@ -364,7 +368,7 @@ func checkProtocolRegistry(verbose bool) DependencyStatus {
 		return dep
 	}
 
-	registryFile := filepath.Join(homeDir, ".erst", "protocols", "registered.json")
+	registryFile := joinPath(homeDir, ".erst", "protocols", "registered.json")
 
 	// Check if registry file exists and is valid
 	if _, err := os.Stat(registryFile); err != nil {
@@ -435,7 +439,7 @@ func checkConfigTOML(verbose bool) DependencyStatus {
 
 	paths := []string{
 		".erst.toml",
-		filepath.Join(os.ExpandEnv("$HOME"), ".erst.toml"),
+		joinPath(os.ExpandEnv("$HOME"), ".erst.toml"),
 		"/etc/erst/config.toml",
 	}
 

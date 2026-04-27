@@ -16,7 +16,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"sort"
+	"strconv"
 	"strings"
+	"sync"
 )
 
 // =============================================================================
@@ -231,28 +234,67 @@ func (d *Disassembler) findCodeSection() (int, int, error) {
 	return 0, 0, fmt.Errorf("code section not found")
 }
 
-// decodeInstructions decodes WASM instructions from the given byte range.
-func (d *Disassembler) decodeInstructions(start, end int) ([]Instruction, error) {
+// parallelThreshold is the minimum number of functions required to trigger
+// parallel decoding. Below this, sequential decoding is used.
+const parallelThreshold = 16
+
+// funcBodyRange holds the byte range [start, end) of a single function body
+// within the WASM module.
+type funcBodyRange struct {
+	start int
+	end   int
+}
+
+// parseFunctionBodies returns the byte ranges of each function body in the
+// code section. start/end delimit the code section payload (after the magic
+// and version). The returned ranges point into d.data.
+func (d *Disassembler) parseFunctionBodies(start, end int) ([]funcBodyRange, error) {
 	if start >= len(d.data) || end > len(d.data) || start >= end {
 		return nil, fmt.Errorf("invalid byte range [%d, %d)", start, end)
 	}
 
-	// Skip the function count at the beginning of the code section
 	pos := start
-	_, n := decodeULEB128(d.data[pos:])
+	count, n := decodeULEB128(d.data[pos:])
 	pos += n
 
-	var instructions []Instruction
+	bodies := make([]funcBodyRange, 0, count)
+	for i := uint64(0); i < count && pos < end; i++ {
+		bodySize, m := decodeULEB128(d.data[pos:])
+		bodyStart := pos + m
+		bodyEnd := bodyStart + int(bodySize)
+		if bodyEnd > end {
+			bodyEnd = end
+		}
+		bodies = append(bodies, funcBodyRange{start: bodyStart, end: bodyEnd})
+		pos = bodyEnd
+	}
+	return bodies, nil
+}
 
+// decodeFuncBody decodes instructions from a single function body byte range.
+// A function body starts with a local-variable declaration block that must be
+// skipped before the actual instructions begin.
+func (d *Disassembler) decodeFuncBody(body funcBodyRange) []Instruction {
+	pos := body.start
+	end := body.end
+
+	// Skip local declarations: localCount groups of (count, type).
+	localCount, n := decodeULEB128(d.data[pos:])
+	pos += n
+	for i := uint64(0); i < localCount && pos < end; i++ {
+		_, m1 := decodeULEB128(d.data[pos:]) // count
+		pos += m1
+		pos++ // valtype byte
+	}
+
+	var insts []Instruction
 	for pos < end {
 		instOffset := uint64(pos)
 		opcode := d.data[pos]
 		pos++
-
 		mnemonic, operands, consumed := decodeOpcode(opcode, d.data[pos:])
 		pos += consumed
-
-		instructions = append(instructions, Instruction{
+		insts = append(insts, Instruction{
 			Offset:   instOffset,
 			Opcode:   opcode,
 			Mnemonic: mnemonic,
@@ -260,8 +302,173 @@ func (d *Disassembler) decodeInstructions(start, end int) ([]Instruction, error)
 			Size:     1 + consumed,
 		})
 	}
+	return insts
+}
 
+// decodeInstructions decodes WASM instructions from the given byte range.
+// When the code section contains at least parallelThreshold function bodies,
+// each body is decoded concurrently.
+func (d *Disassembler) decodeInstructions(start, end int) ([]Instruction, error) {
+	if start >= len(d.data) || end > len(d.data) || start >= end {
+		return nil, fmt.Errorf("invalid byte range [%d, %d)", start, end)
+	}
+
+	bodies, err := d.parseFunctionBodies(start, end)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(bodies) < parallelThreshold {
+		// Sequential path for small contracts.
+		var instructions []Instruction
+		for _, b := range bodies {
+			instructions = append(instructions, d.decodeFuncBody(b)...)
+		}
+		return instructions, nil
+	}
+
+	// Parallel path: decode each function body in its own goroutine.
+	results := make([][]Instruction, len(bodies))
+	var wg sync.WaitGroup
+	wg.Add(len(bodies))
+	for i, b := range bodies {
+		i, b := i, b
+		go func() {
+			defer wg.Done()
+			results[i] = d.decodeFuncBody(b)
+		}()
+	}
+	wg.Wait()
+
+	// Merge in order and sort by offset to maintain a stable, ordered slice.
+	var total int
+	for _, r := range results {
+		total += len(r)
+	}
+	instructions := make([]Instruction, 0, total)
+	for _, r := range results {
+		instructions = append(instructions, r...)
+	}
+	sort.Slice(instructions, func(i, j int) bool {
+		return instructions[i].Offset < instructions[j].Offset
+	})
 	return instructions, nil
+}
+
+// =============================================================================
+// Custom sections
+// =============================================================================
+
+// CustomSection holds the name and raw payload of a WASM custom section.
+type CustomSection struct {
+	// Name is the UTF-8 name of the custom section (e.g. "name", "producers").
+	Name string
+	// Data is the raw payload bytes after the name field.
+	Data []byte
+}
+
+// ParseCustomSections returns all custom sections (section ID 0) found in the
+// WASM module. The 'name' section is the most common; others are returned as-is.
+func (d *Disassembler) ParseCustomSections() ([]CustomSection, error) {
+	if !d.IsValidWasm() {
+		return nil, fmt.Errorf("not a valid WASM module")
+	}
+
+	var sections []CustomSection
+	pos := 8 // skip magic + version
+
+	for pos < len(d.data) {
+		sectionID := d.data[pos]
+		pos++
+
+		size, n := decodeULEB128(d.data[pos:])
+		pos += n
+
+		end := pos + int(size)
+		if end > len(d.data) {
+			break
+		}
+
+		if sectionID == SectionCustom {
+			nameLen, m := decodeULEB128(d.data[pos:])
+			nameStart := pos + m
+			nameEnd := nameStart + int(nameLen)
+			if nameEnd <= end {
+				sections = append(sections, CustomSection{
+					Name: string(d.data[nameStart:nameEnd]),
+					Data: d.data[nameEnd:end],
+				})
+			}
+		}
+
+		pos = end
+	}
+
+	return sections, nil
+}
+
+// FormatCustomSections renders custom sections as a human-readable string
+// suitable for inclusion in disassembly output. The 'name' section function
+// names are decoded; all other sections show a hex/ASCII summary.
+func FormatCustomSections(sections []CustomSection) string {
+	if len(sections) == 0 {
+		return "  <no custom sections>\n"
+	}
+
+	var b strings.Builder
+	for _, sec := range sections {
+		fmt.Fprintf(&b, "  [custom] %q (%d bytes)\n", sec.Name, len(sec.Data))
+		if sec.Name == "name" {
+			if names := decodeNameSection(sec.Data); len(names) > 0 {
+				for idx, name := range names {
+					fmt.Fprintf(&b, "    func[%d]: %s\n", idx, name)
+				}
+			}
+		}
+	}
+	return b.String()
+}
+
+// decodeNameSection parses the WASM 'name' section and returns a map of
+// function index → name. Only the function names subsection (id=1) is decoded.
+func decodeNameSection(data []byte) map[uint64]string {
+	names := make(map[uint64]string)
+	pos := 0
+	for pos < len(data) {
+		if pos+1 > len(data) {
+			break
+		}
+		subsectionID := data[pos]
+		pos++
+		subsectionSize, n := decodeULEB128(data[pos:])
+		pos += n
+		end := pos + int(subsectionSize)
+		if end > len(data) {
+			break
+		}
+
+		if subsectionID == 1 { // function names
+			count, m := decodeULEB128(data[pos:])
+			cur := pos + m
+			for i := uint64(0); i < count && cur < end; i++ {
+				idx, m1 := decodeULEB128(data[cur:])
+				cur += m1
+				nameLen, m2 := decodeULEB128(data[cur:])
+				cur += m2
+				nameEnd := cur + int(nameLen)
+				if nameEnd <= end {
+					names[idx] = string(data[cur:nameEnd])
+				}
+				cur = nameEnd
+			}
+		}
+
+		pos = end
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	return names
 }
 
 // =============================================================================
@@ -292,6 +499,78 @@ func FormatFallback(wasmBytes []byte, failingOffset uint64, contextLines int) st
 	fmt.Fprintf(&b, "\nFailing instruction at offset 0x%x\n", failingOffset)
 
 	return b.String()
+}
+
+// =============================================================================
+// Event cross-referencing
+// =============================================================================
+
+// DiagnosticEventSource is the minimal interface required to cross-reference
+// a diagnostic event against WASM instructions. It matches the WasmInstruction
+// field emitted by the Soroban simulator (a decimal byte-offset string).
+type DiagnosticEventSource interface {
+	// GetWasmInstruction returns the raw WasmInstruction string pointer from
+	// the event, or nil if the event carries no instruction offset.
+	GetWasmInstruction() *string
+}
+
+// EventRef pairs a diagnostic event with the WASM instruction it maps to.
+type EventRef struct {
+	// EventIndex is the position of the event in the original slice.
+	EventIndex int
+	// Offset is the parsed WASM byte offset from the event's WasmInstruction field.
+	Offset uint64
+	// Instruction is the decoded WASM instruction at that offset, or nil if the
+	// offset could not be resolved against the binary.
+	Instruction *Instruction
+}
+
+// CrossReferenceEvents maps each event in events to the WASM instruction at
+// the offset encoded in its WasmInstruction field. Events without a
+// WasmInstruction field are skipped. The returned slice preserves the order of
+// the input events and only contains entries for events that carry an offset.
+//
+// wasmBytes must be a valid WASM module; if it is not, an error is returned
+// before any events are processed.
+func CrossReferenceEvents(wasmBytes []byte, events []DiagnosticEventSource) ([]EventRef, error) {
+	d := NewDisassembler(wasmBytes)
+	if !d.IsValidWasm() {
+		return nil, fmt.Errorf("not a valid WASM module")
+	}
+
+	instructions, err := d.DecodeAll()
+	if err != nil {
+		return nil, fmt.Errorf("decode instructions: %w", err)
+	}
+
+	// Build an offset → instruction index map for O(1) lookup.
+	offsetIndex := make(map[uint64]int, len(instructions))
+	for i, inst := range instructions {
+		offsetIndex[inst.Offset] = i
+	}
+
+	var refs []EventRef
+	for i, ev := range events {
+		raw := ev.GetWasmInstruction()
+		if raw == nil || *raw == "" {
+			continue
+		}
+		offset, err := strconv.ParseUint(*raw, 10, 64)
+		if err != nil {
+			// Unparseable offset — include the ref with a nil instruction so
+			// callers can still see which event had a bad offset.
+			refs = append(refs, EventRef{EventIndex: i, Offset: 0})
+			continue
+		}
+		ref := EventRef{EventIndex: i, Offset: offset}
+		if idx, ok := offsetIndex[offset]; ok {
+			inst := instructions[idx]
+			ref.Instruction = &inst
+		}
+		refs = append(refs, ref)
+	}
+
+	return refs, nil
 }
 
 // =============================================================================

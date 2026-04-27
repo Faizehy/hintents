@@ -83,3 +83,41 @@ ishust.py
 create_phase9.py
 
 create_phase10.py
+
+# --- Windows build artifacts & debug symbols (#1184) ---
+# MSVC / Visual Studio
+*.pdb
+*.ilk
+*.idb
+*.obj
+*.lib
+*.exp
+*.map
+# MSVC incremental linker files
+*.vc.db
+*.vc.vc.db
+*.vcxproj.user
+*.vcxproj.filters
+# MSBuild / VS generated folders
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+ipch/
+*.aps
+# CodeView debug info embedded in object files
+*.pchi
+# Windows-specific crash/dump artefacts
+*.dmp
+*.stackdump
+# MinGW / Cygwin
+*.a
+*.o
+# Generated resource files
+Resource.rc
+# Windows Installer artefacts
+*.msi
+*.msix
+*.cab

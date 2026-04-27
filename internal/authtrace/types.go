@@ -3,6 +3,8 @@
 
 package authtrace
 
+import "encoding/json"
+
 type SignatureType string
 
 const (
@@ -22,6 +24,7 @@ const (
 	ReasonInvalidPublicKey     AuthFailureReason = "invalid_public_key"
 	ReasonExpiredPreAuth       AuthFailureReason = "expired_pre_auth"
 	ReasonCustomContractFailed AuthFailureReason = "custom_contract_failed"
+	ReasonReplayAttackDetected AuthFailureReason = "replay_attack_detected" // #1217
 	ReasonUnknown              AuthFailureReason = "unknown"
 )
 
@@ -81,12 +84,53 @@ type AuthTrace struct {
 	CustomContracts  []CustomContractAuth `json:"custom_contracts,omitempty"`
 }
 
+// ToJSON serialises an AuthTrace to indented JSON for use by external audit
+// tools (#1213). The output is stable and safe for both file storage and
+// API responses.
+func (a *AuthTrace) ToJSON() ([]byte, error) {
+	out, err := json.MarshalIndent(a, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ToJSONString is a convenience wrapper that returns the JSON as a string.
+// Returns an empty string and the error if marshalling fails.
+func (a *AuthTrace) ToJSONString() (string, error) {
+	b, err := a.ToJSON()
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
 type CustomContractAuth struct {
 	ContractID string   `json:"contract_id"`
 	Method     string   `json:"method"`
 	Params     []string `json:"params,omitempty"`
 	Result     string   `json:"result"`
 	ErrorMsg   string   `json:"error_msg,omitempty"`
+}
+
+// SACCall holds metadata for a Stellar Asset Contract interaction (#1210).
+type SACCall struct {
+	ContractID string   `json:"contract_id"`
+	AssetLabel string   `json:"asset_label"` // e.g. "XLM (Native)" or "USDC (Circle)"
+	Method     string   `json:"method"`
+	Params     []string `json:"params,omitempty"`
+	Result     string   `json:"result"`
+	ErrorMsg   string   `json:"error_msg,omitempty"`
+}
+
+// ReplayAttackWarning is returned by CheckReplayAttack when a vulnerability is
+// detected (#1217). It carries enough context for the caller to log or surface
+// the issue without having to re-inspect the event stream.
+type ReplayAttackWarning struct {
+	AccountID   string `json:"account_id"`
+	AntiPattern string `json:"anti_pattern"` // "missing_nonce" | "duplicate_nonce" | "stale_nonce_timestamp"
+	Detail      string `json:"detail"`
+	DetectedAt  int64  `json:"detected_at_ms"`
 }
 
 type Config struct {

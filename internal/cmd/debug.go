@@ -357,6 +357,12 @@ Local WASM Replay Mode:
 					opts = append(opts, rpc.WithHorizonURL(cfg.RpcUrl))
 					horizonURL = cfg.RpcUrl
 				}
+				if cfg.FailureThreshold > 0 {
+					opts = append(opts, rpc.WithCircuitBreakerThreshold(cfg.FailureThreshold))
+				}
+				if cfg.RetryTimeout > 0 {
+					opts = append(opts, rpc.WithCircuitBreakerTimeout(cfg.RetryTimeout))
+				}
 			}
 		}
 
